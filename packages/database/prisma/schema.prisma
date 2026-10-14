@@ -1,0 +1,606 @@
+// ============================================================
+// Soch.ai — Prisma schema (single source of truth for Postgres)
+// Generated from docs/03-database-schema.md; keep in sync.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------
+// ENUMS
+// ------------------------------------------------------------
+
+enum SkillLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum GoalType {
+  INTERNSHIP
+  JOB
+  FREELANCING
+  STARTUP
+  SAAS
+  YOUTUBER
+  AI_ENGINEER
+  CRACK_FAANG
+  SKILL_MASTERY
+}
+
+enum LearningStyle {
+  VIDEOS
+  PROJECTS
+  READING
+  DOCUMENTATION
+  MIXED
+}
+
+enum RoadmapStatus {
+  PENDING
+  RESEARCHING
+  GENERATING
+  READY
+  FAILED
+  ARCHIVED
+}
+
+enum StageLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum ResourceType {
+  VIDEO
+  ARTICLE
+  DOCUMENTATION
+  COURSE
+  REPO
+  COMMUNITY
+  OFFICIAL
+  BOOK
+  NEWS
+  PAPER
+  TOOL
+}
+
+enum SourceDomain {
+  GOOGLE
+  GITHUB
+  YOUTUBE
+  REDDIT
+  OFFICIAL_DOCS
+  STACK_OVERFLOW
+  MEDIUM
+  DEV_TO
+  HASHNODE
+  PRODUCT_HUNT
+  HACKER_NEWS
+  LINKEDIN_LEARNING
+  COURSERA
+  UDEMY
+  FREECODECAMP
+  KHAN_ACADEMY
+  ROADMAP_SH
+  MICROSOFT_LEARN
+  GOOGLE_DEVELOPERS
+  AWS
+  AZURE
+  OPENAI
+  ANTHROPIC
+  LANGCHAIN
+  HUGGING_FACE
+  PAPERS_WITH_CODE
+  ARXIV
+}
+
+enum ProjectType {
+  MINI
+  PORTFOLIO
+  INDUSTRY
+  STARTUP_IDEA
+  OPEN_SOURCE
+  CAPSTONE
+}
+
+enum ProjectStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETE
+  DEPLOYED
+  SHIPPED
+}
+
+enum ItemStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  SKIPPED
+}
+
+enum InterviewType {
+  TECHNICAL
+  HR
+  BEHAVIORAL
+  CODING
+  MOCK
+}
+
+enum ChatRole {
+  USER
+  MENTOR
+  SYSTEM
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  PUSH
+}
+
+enum NotificationKind {
+  STUDY_REMINDER
+  REVISION
+  DEADLINE
+  INTERVIEW_PRACTICE
+  PROJECT_UPDATE
+  ACHIEVEMENT
+  REPORT
+}
+
+// ------------------------------------------------------------
+// IDENTITY & PROFILE
+// ------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  clerkId       String    @unique @map("clerk_id")
+  email         String    @unique
+  name          String
+  avatarUrl     String?   @map("avatar_url")
+  country       String?
+  language      String    @default("en")
+  points        Int       @default(0)
+  xp            Int       @default(0)
+  coins         Int       @default(0)
+  streakDays    Int       @default(0) @map("streak_days")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  profile           UserProfile?
+  roadmaps          Roadmap[]
+  projects          Project[]
+  progressLogs      ProgressLog[]
+  gamification      GamificationState?
+  achievements      UserAchievement[]
+  xpEvents          XpEvent[]
+  notifications     Notification[]
+  chats             ChatThread[]
+  notes             Note[]
+  bookmarks         Bookmark[]
+  reports           WeeklyReport[]
+  interviewSessions InterviewSession[]
+  readinessSnapshot JobReadinessSnapshot?
+
+  @@index([clerkId])
+  @@index([email])
+}
+
+model UserProfile {
+  id            String        @id @default(cuid())
+  userId        String        @unique @map("user_id")
+  subject       String // normalized taxonomy subject (e.g. "ai-engineering")
+  subjectRaw    String        @map("subject_raw")
+  level         SkillLevel
+  goals         GoalType[] @default([])
+  primaryGoal   GoalType      @map("primary_goal")
+  weeklyHours   Int           @map("weekly_hours")
+  learningStyle LearningStyle @map("learning_style")
+  // AI-inferred / optional refinement fields
+  pace          String?
+  budget        String?
+  difficultyPref String       @map("difficulty_pref")
+  location      String?
+  inferredNotes String        @map("inferred_notes")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roadmaps   Roadmap[]
+
+  @@index([subject, level])
+  @@index([userId])
+}
+
+// ------------------------------------------------------------
+// ROADMAP
+// ------------------------------------------------------------
+
+model Roadmap {
+  id        String        @id @default(cuid())
+  userId    String        @map("user_id")
+  profileId String        @map("profile_id")
+  title     String
+  status    RoadmapStatus @default(PENDING)
+  // Full generated graph (stages→topics→subtopics→resources) as
+  // normalized JSON snapshot; relational copies live below for querying.
+  graph     Json
+  progressPct Float      @default(0) @map("progress_pct")
+  researchSnapshotId String? @map("research_snapshot_id")
+  version   Int           @default(1)
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+  completedAt DateTime?   @map("completed_at")
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile   UserProfile    @relation(fields: [profileId], references: [id])
+  stages    RoadmapStage[]
+  milestones Milestone[]
+  generatedProjects Project[]
+
+  @@index([userId, status])
+  @@index([profileId])
+}
+
+model RoadmapStage {
+  id        String     @id @default(cuid())
+  roadmapId String     @map("roadmap_id")
+  level     StageLevel
+  order     Int
+  title     String
+  summary   String
+  estHours  Int        @map("est_hours")
+  difficulty Int
+  prerequisites String[]
+  revision  String
+  isComplete Boolean    @default(false) @map("is_complete")
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  roadmap Roadmap  @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+  topics  Topic[]
+
+  @@unique([roadmapId, level])
+  @@index([roadmapId, order])
+}
+
+model Topic {
+  id            String   @id @default(cuid())
+  stageId       String   @map("stage_id")
+  title         String
+  description   String
+  subtopics     String[]
+  difficulty    Int
+  prerequisites String[]
+  estHours      Int      @map("est_hours")
+  order         Int
+  status        ItemStatus @default(TODO)
+  completedAt   DateTime? @map("completed_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  stage     RoadmapStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  resources Resource[]
+  quizzes   Quiz[]
+
+  @@index([stageId, order])
+}
+
+model Resource {
+  id         String       @id @default(cuid())
+  topicId    String?      @map("topic_id") // NULL = cross-stage/optional
+  title      String
+  url        String       @unique
+  type       ResourceType
+  source     SourceDomain
+  // Ranking signals
+  qualityScore   Float     @map("quality_score")   // 0..1 from ranking engine
+  freshnessScore Float     @map("freshness_score") // 0..1
+  popularityScore Float    @map("popularity_score")
+  communityRating Float?   @map("community_rating")
+  isOfficial     Boolean   @default(false) @map("is_official")
+  efficiency     Float     @default(0.5)
+  rank          Int        @default(0)
+  rationale     String     // one-line "why this resource"
+  publishedAt   DateTime?
+  scrapedAt     DateTime   @default(now()) @map("scraped_at")
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+  topic Topic? @relation(fields: [topicId], references: [id], onDelete: SetNull)
+
+  @@unique([topicId, url])
+  @@index([source, type])
+}
+
+model Quiz {
+  id        String   @id @default(cuid())
+  topicId   String   @map("topic_id")
+  title     String
+  questions Json
+  difficulty Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+}
+
+// ------------------------------------------------------------
+// PROJECTS & MILESTONES
+// ------------------------------------------------------------
+
+model Project {
+  id          String        @id @default(cuid())
+  userId      String        @map("user_id")
+  roadmapId   String?       @map("roadmap_id")
+  title       String
+  type        ProjectType
+  status      ProjectStatus @default(NOT_STARTED)
+  difficulty  Int
+  // Generated blueprint
+  architecture Json
+  folderStructure String @map("folder_structure")
+  features    String[]
+  learningOutcomes String[] @map("learning_outcomes")
+  deploymentGuide String  @map("deployment_guide")
+  readme      String
+  repoUrl     String?       @map("repo_url")
+  deployedUrl String?       @map("deployed_url")
+  xpAwarded   Int           @default(0) @map("xp_awarded")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  completedAt DateTime?     @map("completed_at")
+
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roadmap Roadmap? @relation(fields: [roadmapId], references: [id], onDelete: SetNull)
+  progressLogs ProgressLog[]
+
+  @@index([userId, status])
+  @@index([roadmapId])
+}
+
+model Milestone {
+  id          String    @id @default(cuid())
+  roadmapId   String    @map("roadmap_id")
+  title       String
+  dueDate     DateTime? @map("due_date")
+  order       Int
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  roadmap Roadmap @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+
+  @@index([roadmapId, order])
+}
+
+model ProgressLog {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  projectId String?  @map("project_id")
+  kind      String // TOPIC | PROJECT | QUIZ | INTERVIEW | RESEARCH
+  refId     String?  @map("ref_id")
+  minutes   Int      @default(0)
+  evidence  String?  // URL/screenshot/repo commit ref
+  date      DateTime @default(now())
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@index([userId, kind])
+}
+
+// ------------------------------------------------------------
+// INTERVIEWS & READINESS
+// ------------------------------------------------------------
+
+model InterviewSession {
+  id        String        @id @default(cuid())
+  userId    String        @map("user_id")
+  type      InterviewType
+  topic     String
+  status    ItemStatus    @default(TODO)
+  questions Json
+  answers   Json?
+  score     Float?
+  feedback  Json?
+  durationSec Int?        @map("duration_sec")
+  createdAt DateTime      @default(now()) @map("created_at")
+  completedAt DateTime?   @map("completed_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model JobReadinessSnapshot {
+  id         String   @id @default(cuid())
+  userId     String   @unique @map("user_id")
+  readinessPct Float  @map("readiness_pct")
+  interviewPct  Float  @map("interview_pct")
+  skillGaps  Json
+  salaryBand Json
+  factors    Json
+  computedAt DateTime @default(now()) @map("computed_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, computedAt])
+}
+
+// ------------------------------------------------------------
+// GAMIFICATION
+// ------------------------------------------------------------
+
+model GamificationState {
+  id         String @id @default(cuid())
+  userId     String @unique @map("user_id")
+  level      Int    @default(1)
+  xp         Int    @default(0)
+  coins      Int    @default(0)
+  streakDays Int    @default(0) @map("streak_days")
+  bestStreak Int    @default(0) @map("best_streak")
+  lastActivityAt DateTime @map("last_activity_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model XpEvent {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  kind      String // TOPIC_COMPLETE | PROJECT_DONE | QUIZ | INTERVIEW | STREAK | CHALLENGE
+  xp        Int
+  coins     Int
+  meta      Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model Achievement {
+  id          String @id @default(cuid())
+  code        String @unique
+  title       String
+  description String
+  xpReward    Int    @default(0) @map("xp_reward")
+  conditions  Json
+}
+
+model UserAchievement {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  achievementId String @map("achievement_id")
+  earnedAt  DateTime @default(now()) @map("earned_at")
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+}
+
+// ------------------------------------------------------------
+// NOTIFICATIONS & KNOWLEDGE BASE
+// ------------------------------------------------------------
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  channel   NotificationChannel
+  kind      NotificationKind
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime? @map("read_at")
+  scheduledFor DateTime? @map("scheduled_for")
+  sentAt    DateTime? @map("sent_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, scheduledFor])
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  title     String
+  body      String
+  tags      String[]
+  embeddingId String? @map("embedding_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
+}
+
+model Bookmark {
+  id        String  @id @default(cuid())
+  userId    String  @map("user_id")
+  url       String
+  title     String
+  summary   String?
+  embeddingId String? @map("embedding_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, url])
+  @@index([userId, createdAt])
+}
+
+// ------------------------------------------------------------
+// AI MEMORY (mentor + agents)
+// ------------------------------------------------------------
+
+model ChatThread {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  title     String
+  topic     String?
+  messages  ChatMessage[]
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  threadId  String   @map("thread_id")
+  role      ChatRole
+  content   String
+  meta      Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+}
+
+model MemorySummary {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  scope     String // ROADMAP | MENTOR | CAREER
+  content   Json
+  embeddingId String? @map("embedding_id")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, scope])
+  @@index([userId])
+}
+
+// ------------------------------------------------------------
+// REPORTS & RESEARCH
+// ------------------------------------------------------------
+
+model WeeklyReport {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  weekStart DateTime @map("week_start")
+  content   Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, weekStart])
+}
+
+model ResearchSnapshot {
+  id          String   @id @default(cuid())
+  cacheKey    String   @unique @map("cache_key") // "subject:market:locale"
+  content     Json
+  ttl         DateTime
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([cacheKey, ttl])
+}

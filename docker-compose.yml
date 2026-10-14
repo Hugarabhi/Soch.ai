@@ -1,0 +1,57 @@
+# Soch.ai local developer stack (infrastructure only — apps run via turbo)
+
+name: soch
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: soch
+      POSTGRES_PASSWORD: soch
+      POSTGRES_DB: soch
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U soch"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports: ["6333:6333", "6334:6334"]
+    volumes:
+      - qdrantdata:/qdrant/storage
+
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["11434:11434"]
+    volumes:
+      - ollamadata:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    ports: ["4318:4318", "8888:8888"]
+    volumes:
+      - ./infra/docker/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+
+volumes:
+  pgdata:
+  redisdata:
+  qdrantdata:
+  ollamadata:
